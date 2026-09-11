@@ -52,7 +52,7 @@ if [ "${#files[@]}" -gt 0 ]; then
     xml_file="${src_file}.xml"
     
     echo "Extracting page data from $src_file"
-    "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f xml --uncompressed -o "$xml_file" "$src_file"
+    "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f xml --uncompressed -o "$xml_file" "$src_file" 2>/dev/null
 
     # Extract page names. Use 'Page-1' as a fallback if no <diagram name="..."> attribute exists
     page_names=$(grep -Eo '<diagram[^>]*name="[^"]+"' "$xml_file" | grep -Eo 'name="[^"]+"' | cut -d'"' -f2 || echo "Page-1")
@@ -68,7 +68,6 @@ if [ "${#files[@]}" -gt 0 ]; then
 
       echo "Rendering $src_file (Page: $page_name) -> $dest"
       
-      # Suppress harmless DBus warnings by routing stderr to /dev/null for the render command
       "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f svg -t --page-index "$page_index" -o "$dest" "$src_file" 2>/dev/null
 
       comment="<!-- rendered from ${src_file} at commit ${commit_sha} on ${rendered_at} -->"
