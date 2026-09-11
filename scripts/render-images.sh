@@ -57,16 +57,24 @@ if [ "${#files[@]}" -gt 0 ]; then
     # Extract page names. Use 'Page-1' as a fallback if no <diagram name="..."> attribute exists
     page_names=$(grep -Eo '<diagram[^>]*name="[^"]+"' "$xml_file" | grep -Eo 'name="[^"]+"' | cut -d'"' -f2 || echo "Page-1")
     
+    # Count the number of non-empty lines to determine if this is a multi-page file
+    page_count=$(echo "$page_names" | grep -c '[^[:space:]]' || true)
+    
     page_index=1 
     while IFS= read -r page_name; do
       if [ -z "$page_name" ]; then continue; fi
 
-      # Sanitize the page name: replace invalid chars with underscores, collapse multiples, remove trailing/leading
-      safe_name=$(echo "$page_name" | tr -c 'a-zA-Z0-9.\-' '_' | tr -s '_' | sed 's/^_//; s/_$//')
-      dest="$OUT_DIR/${rel%.drawio}-${safe_name}.svg"
-      mkdir -p "$(dirname "$dest")"
+      if [ "$page_count" -eq 1 ]; then
+        dest="$OUT_DIR/${rel%.drawio}.svg"
+        echo "Rendering $src_file -> $dest"
+      else
+        # Sanitize the page name: replace invalid chars with underscores, collapse multiples, remove trailing/leading
+        safe_name=$(echo "$page_name" | tr -c 'a-zA-Z0-9.\-' '_' | tr -s '_' | sed 's/^_//; s/_$//')
+        dest="$OUT_DIR/${rel%.drawio}-${safe_name}.svg"
+        echo "Rendering $src_file (Page: $page_name) -> $dest"
+      fi
 
-      echo "Rendering $src_file (Page: $page_name) -> $dest"
+      mkdir -p "$(dirname "$dest")"
       
       "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f svg -t --page-index "$page_index" -o "$dest" "$src_file" > /dev/null 2>&1
 
