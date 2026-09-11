@@ -57,7 +57,7 @@ if [ "${#files[@]}" -gt 0 ]; then
     # Extract page names. Use 'Page-1' as a fallback if no <diagram name="..."> attribute exists
     page_names=$(grep -Eo '<diagram[^>]*name="[^"]+"' "$xml_file" | grep -Eo 'name="[^"]+"' | cut -d'"' -f2 || echo "Page-1")
     
-    page_index=0
+    page_index=1 
     while IFS= read -r page_name; do
       if [ -z "$page_name" ]; then continue; fi
 
@@ -67,7 +67,9 @@ if [ "${#files[@]}" -gt 0 ]; then
       mkdir -p "$(dirname "$dest")"
 
       echo "Rendering $src_file (Page: $page_name) -> $dest"
-      "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f svg -t --page-index "$page_index" -o "$dest" "$src_file"
+      
+      # Suppress harmless DBus warnings by routing stderr to /dev/null for the render command
+      "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f svg -t --page-index "$page_index" -o "$dest" "$src_file" 2>/dev/null
 
       comment="<!-- rendered from ${src_file} at commit ${commit_sha} on ${rendered_at} -->"
       tmp="$(mktemp)"
