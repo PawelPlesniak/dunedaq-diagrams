@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Renders src/**/*.drawio into a mirrored auto-images/**/*.svg tree using the
-# draw.io desktop CLI, stamps each render with its provenance, and removes
-# any auto-images/ renders whose source .drawio no longer exists.
+# draw.io desktop CLI. It exports each page in multi-page diagrams individually,
+# stamps each render with its provenance, and removes any auto-images/ renders 
+# whose source .drawio no longer exists.
 #
 # Usage:
 #   scripts/render-images.sh --all              render every src/**/*.drawio
@@ -29,6 +30,12 @@ else
   files=("$@")
 fi
 
+# Determine xvfb prefix once to clean up the loop
+XVFB_PREFIX=()
+if command -v xvfb-run >/dev/null 2>&1; then
+  XVFB_PREFIX=(xvfb-run -a)
+fi
+
 if [ "${#files[@]}" -gt 0 ]; then
   if ! command -v "$DRAWIO_BIN" >/dev/null 2>&1; then
     echo "error: '$DRAWIO_BIN' not found on PATH." >&2
@@ -42,32 +49,60 @@ if [ "${#files[@]}" -gt 0 ]; then
 
   for src_file in "${files[@]}"; do
     rel="${src_file#"$SRC_DIR"/}"
-    dest="$OUT_DIR/${rel%.drawio}.svg"
-    mkdir -p "$(dirname "$dest")"
+    xml_file="${src_file}.xml"
+    
+    echo "Extracting page data from $src_file"
+    "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f xml --uncompressed -o "$xml_file" "$src_file" > /dev/null 2>&1
 
-    echo "Rendering $src_file -> $dest"
-    if command -v xvfb-run >/dev/null 2>&1; then
-      xvfb-run -a "$DRAWIO_BIN" -x -f svg -t -o "$dest" "$src_file"
-    else
-      "$DRAWIO_BIN" -x -f svg -t -o "$dest" "$src_file"
-    fi
+    # Extract page names. Use 'Page-1' as a fallback if no <diagram name="..."> attribute exists
+    page_names=$(grep -Eo '<diagram[^>]*name="[^"]+"' "$xml_file" | grep -Eo 'name="[^"]+"' | cut -d'"' -f2 || echo "Page-1")
+    
+    # Count the number of non-empty lines to determine if this is a multi-page file
+    page_count=$(echo "$page_names" | grep -c '[^[:space:]]' || true)
+    
+    page_index=1 
+    while IFS= read -r page_name; do
+      if [ -z "$page_name" ]; then continue; fi
 
-    comment="<!-- rendered from ${src_file} at commit ${commit_sha} on ${rendered_at} -->"
-    tmp="$(mktemp)"
-    { head -n 2 "$dest"; echo "$comment"; tail -n +3 "$dest"; } > "$tmp"
-    mv "$tmp" "$dest"
+      if [ "$page_count" -eq 1 ]; then
+        dest="$OUT_DIR/${rel%.drawio}.svg"
+        echo "Rendering $src_file -> $dest"
+      else
+        # Sanitize the page name: replace invalid chars with underscores, collapse multiples, remove trailing/leading
+        safe_name=$(echo "$page_name" | tr -c 'a-zA-Z0-9.\-' '_' | tr -s '_' | sed 's/^_//; s/_$//')
+        dest="$OUT_DIR/${rel%.drawio}-${safe_name}.svg"
+        echo "Rendering $src_file (Page: $page_name) -> $dest"
+      fi
+
+      mkdir -p "$(dirname "$dest")"
+      
+      "${XVFB_PREFIX[@]}" "$DRAWIO_BIN" -x -f svg -t --page-index "$page_index" -o "$dest" "$src_file" > /dev/null 2>&1
+
+      comment="<!-- rendered from ${src_file} at commit ${commit_sha} on ${rendered_at} -->"
+      tmp="$(mktemp)"
+      { head -n 2 "$dest"; echo "$comment"; tail -n +3 "$dest"; } > "$tmp"
+      mv "$tmp" "$dest"
+
+      ((page_index++))
+    done <<< "$page_names"
+    
+    rm -f "$xml_file"
   done
 fi
 
-# Orphan cleanup always runs: a deleted .drawio file has no "changed" render
-# to trigger, but its stale auto-images/ render still needs to go.
+# Orphan cleanup reads the exact source file from the injected HTML comment
 if [ -d "$OUT_DIR" ]; then
   while IFS= read -r f; do
-    rel="${f#"$OUT_DIR"/}"
-    src_equiv="$SRC_DIR/${rel%.svg}.drawio"
-    if [ ! -f "$src_equiv" ]; then
-      echo "Removing orphaned render: $f (no matching $src_equiv)"
-      rm "$f"
+    src_equiv=$(grep -m 1 -o '<!-- rendered from .* at commit' "$f" | sed 's/<!-- rendered from //; s/ at commit//' || true)
+    
+    if [ -n "$src_equiv" ]; then
+      if [ ! -f "$src_equiv" ]; then
+        echo "Removing orphaned render: $f (no matching $src_equiv)"
+        rm -f "$f"
+      fi
+    else
+      echo "Removing unstamped or legacy render: $f"
+      rm -f "$f"
     fi
   done < <(find "$OUT_DIR" -type f -name '*.svg')
   find "$OUT_DIR" -mindepth 1 -type d -empty -delete
