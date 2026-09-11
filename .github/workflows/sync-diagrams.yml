@@ -7,17 +7,18 @@ name: Sync diagram renders
 # - on push to main, so edits committed directly to main (e.g. via the
 #   app.diagrams.net GitHub integration, which saves straight to the ref it
 #   opened) don't leave auto-images/ silently stale
-on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**/*.drawio'
-      - '.github/workflows/sync-diagrams.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'src/**/*.drawio'
-      - '.github/workflows/sync-diagrams.yml'
+# TODO: Uncomment once the workflow is validated for CCM diagrams too
+# on:
+#   pull_request:
+#     branches: [main]
+#     paths:
+#       - 'src/**/*.drawio'
+#       - '.github/workflows/sync-diagrams.yml'
+#   push:
+#     branches: [main]
+#     paths:
+#       - 'src/**/*.drawio'
+#       - '.github/workflows/sync-diagrams.yml'
 
 permissions:
   contents: write
